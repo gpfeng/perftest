@@ -15,10 +15,12 @@ import (
 )
 
 type Args struct {
-	concurrency  int
-	queryCnt     int
-	serviceAddr  string
-	testDataPath string
+	concurrency   int
+	queryCnt      int
+	serviceAddr   string
+	testDataPath  string
+	reportDetails bool
+	defaults      string
 }
 
 type Param struct {
@@ -30,9 +32,9 @@ type Param struct {
 type Stat struct {
 	failed          int
 	successed       int
-	respTimeMsTotal int64
+	respTimeTotalMs int64
 	respTimeAvgMs   int64
-	respTimeMsMax   int64
+	respTimeMaxMs   int64
 }
 
 func loadData(path string) ([]string, error) {
@@ -70,11 +72,11 @@ func generateTask(cnt, max int) []int {
 	return ret
 }
 
-func work(addr string, param *Param, stat *Stat, wc chan<- int) {
+func work(addr, defaults string, param *Param, stat *Stat, wc chan<- int) {
 	defer func() {
 		wc <- 1
 		if stat.failed > 0 || stat.successed > 0 {
-			stat.respTimeAvgMs = stat.respTimeMsTotal / int64(stat.failed+stat.successed)
+			stat.respTimeAvgMs = stat.respTimeTotalMs / int64(stat.failed+stat.successed)
 		}
 	}()
 
@@ -82,9 +84,15 @@ func work(addr string, param *Param, stat *Stat, wc chan<- int) {
 
 		url := addr
 		vars := strings.TrimSpace(param.data[param.task[i]])
-		if vars != "" {
-			url += "?" + vars
-		}
+        defaults := strings.TrimSpace(defaults)
+		if defaults != "" {
+			url += "?" + defaults
+            if vars != "" {
+                url += "&" + vars
+            }
+		} else if vars != "" {
+            url += "?" + vars
+        }
 
 		start := time.Now().UnixNano()
 		rsp, err := http.Get(url)
@@ -92,20 +100,20 @@ func work(addr string, param *Param, stat *Stat, wc chan<- int) {
 			stat.failed += 1
 		} else {
 			stat.successed += 1
-            /*
-			bytes, err := ioutil.ReadAll(rsp.Body)
-			if err == nil {
-				fmt.Printf("response: %s\n", string(bytes))
-			}
-            */
+			/*
+				bytes, err := ioutil.ReadAll(rsp.Body)
+				if err == nil {
+					fmt.Printf("response: %s\n", string(bytes))
+				}
+			*/
 			rsp.Body.Close()
 		}
 		end := time.Now().UnixNano()
 		elapsedMs := (int64(end) - int64(start)) / int64(time.Millisecond)
 
-		stat.respTimeMsTotal += elapsedMs
-		if elapsedMs > stat.respTimeMsMax {
-			stat.respTimeMsMax = elapsedMs
+		stat.respTimeTotalMs += elapsedMs
+		if elapsedMs > stat.respTimeMaxMs {
+			stat.respTimeMaxMs = elapsedMs
 		}
 	}
 }
@@ -117,7 +125,7 @@ func createWorkers(args *Args, testData []string, stats []Stat, wc chan<- int) {
 		params[i].data = testData
 		params[i].task = generateTask(args.queryCnt, len(testData))
 		params[i].queryCnt = args.queryCnt
-		go work(args.serviceAddr, &params[i], &stats[i], wc)
+		go work(args.serviceAddr, args.defaults, &params[i], &stats[i], wc)
 	}
 }
 
@@ -126,18 +134,27 @@ func main() {
 	c := flag.Int("c", 1, "number of concurrent clients")
 	n := flag.Int("n", 1, "number of request per client")
 	h := flag.String("h", "http://localhost", "service address")
-	d := flag.String("d", "", "path of test data")
+	f := flag.String("f", "", "path of test data")
+	v := flag.Bool("v", false, "report details of each client when finished")
+	d := flag.String("d", "", "defalut value")
 
 	flag.Parse()
 
 	args := &Args{
-		concurrency:  *c,
-		queryCnt:     *n,
-		serviceAddr:  *h,
-		testDataPath: *d,
+		concurrency:   *c,
+		queryCnt:      *n,
+		serviceAddr:   *h,
+		testDataPath:  *f,
+		reportDetails: *v,
+		defaults:      *d,
 	}
 
 	fmt.Printf("Args: %#v\n", *args)
+
+	if args.concurrency <= 0 {
+		fmt.Printf("concurrency must be greater than 0\n")
+		return
+	}
 
 	data, err := loadData(args.testDataPath)
 	if err != nil {
@@ -159,7 +176,22 @@ func main() {
 	}
 
 	// report statistics
+	var respTimeAvgMs int64 = 0
+	var respTimeMaxMs int64 = 0
+	var failed int64 = 0
+
 	for i := 0; i < args.concurrency; i++ {
-		fmt.Printf("thread %d finished: %#v\n", i, stats[i])
+		if args.reportDetails {
+			fmt.Printf("thread %d: %#v\n", i, stats[i])
+		}
+		failed += int64(stats[i].failed)
+		respTimeAvgMs += stats[i].respTimeAvgMs
+		if stats[i].respTimeMaxMs > respTimeMaxMs {
+			respTimeMaxMs = stats[i].respTimeMaxMs
+		}
 	}
+
+	respTimeAvgMs /= int64(args.concurrency)
+	fmt.Printf("Total request: %d, failed: %d, avg response time: %d ms, max response time: %d ms\n",
+		args.concurrency*args.queryCnt, failed, respTimeAvgMs, respTimeMaxMs)
 }
