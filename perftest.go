@@ -84,15 +84,15 @@ func work(addr, defaults string, param *Param, stat *Stat, wc chan<- int) {
 
 		url := addr
 		vars := strings.TrimSpace(param.data[param.task[i]])
-        defaults := strings.TrimSpace(defaults)
+		defaults := strings.TrimSpace(defaults)
 		if defaults != "" {
 			url += "?" + defaults
-            if vars != "" {
-                url += "&" + vars
-            }
+			if vars != "" {
+				url += "&" + vars
+			}
 		} else if vars != "" {
-            url += "?" + vars
-        }
+			url += "?" + vars
+		}
 
 		start := time.Now().UnixNano()
 		rsp, err := http.Get(url)
@@ -149,7 +149,7 @@ func main() {
 		defaults:      *d,
 	}
 
-	fmt.Printf("Args: %#v\n", *args)
+	log.Printf("Args: %#v\n", *args)
 
 	if args.concurrency <= 0 {
 		fmt.Printf("concurrency must be greater than 0\n")
@@ -179,19 +179,21 @@ func main() {
 	var respTimeAvgMs int64 = 0
 	var respTimeMaxMs int64 = 0
 	var failed int64 = 0
+    var qps int64 = 0
 
 	for i := 0; i < args.concurrency; i++ {
 		if args.reportDetails {
-			fmt.Printf("thread %d: %#v\n", i, stats[i])
+			log.Printf("thread %d: %#v\n", i, stats[i])
 		}
 		failed += int64(stats[i].failed)
 		respTimeAvgMs += stats[i].respTimeAvgMs
 		if stats[i].respTimeMaxMs > respTimeMaxMs {
 			respTimeMaxMs = stats[i].respTimeMaxMs
 		}
+        qps += int64(args.queryCnt * 1000) / int64(stats[i].respTimeTotalMs)
 	}
 
 	respTimeAvgMs /= int64(args.concurrency)
-	fmt.Printf("Total request: %d, failed: %d, avg response time: %d ms, max response time: %d ms\n",
-		args.concurrency*args.queryCnt, failed, respTimeAvgMs, respTimeMaxMs)
+	log.Printf("Total request: %d, failed: %d, avg response time: %d ms, max response time: %d ms, QPS: %d\n",
+		args.concurrency*args.queryCnt, failed, respTimeAvgMs, respTimeMaxMs, qps)
 }
