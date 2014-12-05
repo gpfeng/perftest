@@ -44,7 +44,7 @@ func loadData(path string) ([]string, error) {
 		return nil, err
 	}
 	reader := bufio.NewReader(file)
-	lines := make([]string, 16)
+	lines := make([]string, 0, 16)
 
 	for {
 		line, err := reader.ReadBytes('\n')
