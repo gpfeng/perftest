@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	//"io/ioutil"
+	"crypto/tls"
 	"log"
 	"math/rand"
 	"net/http"
@@ -80,6 +81,12 @@ func work(addr, defaults string, param *Param, stat *Stat, wc chan<- int) {
 		}
 	}()
 
+    client := &http.Client{
+        Transport: &http.Transport{
+            TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+        },
+    }
+
 	for i := 0; i < param.queryCnt; i++ {
 
 		url := addr
@@ -95,7 +102,7 @@ func work(addr, defaults string, param *Param, stat *Stat, wc chan<- int) {
 		}
 
 		start := time.Now().UnixNano()
-		rsp, err := http.Get(url)
+		rsp, err := client.Get(url)
 		if err != nil {
 			stat.failed += 1
 		} else {
@@ -179,7 +186,7 @@ func main() {
 	var respTimeAvgMs int64 = 0
 	var respTimeMaxMs int64 = 0
 	var failed int64 = 0
-    var qps int64 = 0
+	var qps int64 = 0
 
 	for i := 0; i < args.concurrency; i++ {
 		if args.reportDetails {
@@ -190,7 +197,7 @@ func main() {
 		if stats[i].respTimeMaxMs > respTimeMaxMs {
 			respTimeMaxMs = stats[i].respTimeMaxMs
 		}
-        qps += int64(args.queryCnt * 1000) / int64(stats[i].respTimeTotalMs)
+		qps += int64(args.queryCnt*1000) / int64(stats[i].respTimeTotalMs)
 	}
 
 	respTimeAvgMs /= int64(args.concurrency)
